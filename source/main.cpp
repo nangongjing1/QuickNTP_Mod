@@ -178,7 +178,7 @@ public:
     virtual tsl::elm::Element* createUI() override {
         auto frame = new tsl::elm::OverlayFrame("QuickNTP", std::string("by NedEX - v") + APP_VERSION);
         frame->m_showWidget = true;
-        
+
         auto list = new tsl::elm::List();
 
         list->addItem(new tsl::elm::CategoryHeader("Pick server "+ult::DIVIDER_SYMBOL+" \uE0E0  Sync "+ult::DIVIDER_SYMBOL+" \uE0E3  Offset"));
@@ -261,23 +261,26 @@ public:
     }
 };
 
-static const SocketInitConfig socketInitConfig = {
-    .tcp_tx_buf_size = 0x8000,
-    .tcp_rx_buf_size = 0x8000,
-    .tcp_tx_buf_max_size = 0x20000,
-    .tcp_rx_buf_max_size = 0x20000,
-
-    .udp_tx_buf_size = 0x400,
-    .udp_rx_buf_size = 0x400,
-
-    .sb_efficiency = 1,
-    .bsd_service_type = BsdServiceType_Auto
-};
-
 class NtpOverlay : public tsl::Overlay {
 public:
     virtual void initServices() override {
-        ASSERT_FATAL(socketInitialize(&socketInitConfig));
+        constexpr SocketInitConfig socketInitConfig = {
+            // TCP buffers
+            .tcp_tx_buf_size     = 16 * 1024,   // 16 KB default
+            .tcp_rx_buf_size     = 16 * 1024*2,   // 16 KB default
+            .tcp_tx_buf_max_size = 64 * 1024,   // 64 KB default max
+            .tcp_rx_buf_max_size = 64 * 1024*2,   // 64 KB default max
+            
+            // UDP buffers
+            .udp_tx_buf_size     = 512,         // 512 B default
+            .udp_rx_buf_size     = 512,         // 512 B default
+        
+            // Socket buffer efficiency
+            .sb_efficiency       = 1,           // 0 = default, balanced memory vs CPU
+                                                // 1 = prioritize memory efficiency (smaller internal allocations)
+            .bsd_service_type    = BsdServiceType_Auto // Auto-select service
+        };
+        socketInitialize(&socketInitConfig);
         ASSERT_FATAL(nifmInitialize(NifmServiceType_User));
         ASSERT_FATAL(timeInitialize());
         ASSERT_FATAL(smInitialize());
