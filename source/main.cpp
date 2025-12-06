@@ -49,14 +49,14 @@ private:
         if (ntpTime != 0) {
             if (setNetworkSystemClock(ntpTime)) {
                 if (tsl::notification)
-                    tsl::notification->showNow("Synced with " + srv, 24);
+                    tsl::notification->showNow(ult::NOTIFY_HEADER+"Synced with " + srv, 22);
             } else {
                 if (tsl::notification)
-                    tsl::notification->showNow("Unable to set network clock", 24);
+                    tsl::notification->showNow(ult::NOTIFY_HEADER+"Unable to set network clock", 22);
             }
         } else {
             if (tsl::notification)
-                tsl::notification->showNow("Error: Failed to get NTP time", 24);
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"Error: Failed to get NTP time", 22);
         }
 
         delete client;
@@ -68,7 +68,7 @@ private:
         Result rs = timeGetCurrentTime(TimeType_UserSystemClock, (u64*)&userTime);
         if (R_FAILED(rs)) {
             if (tsl::notification)
-                tsl::notification->show("GetTimeUser " + std::to_string(rs), 24);
+                tsl::notification->show(ult::NOTIFY_HEADER+"GetTimeUser " + std::to_string(rs), 22);
             return;
         }
 
@@ -81,10 +81,10 @@ private:
 
         if (setNetworkSystemClock(userTime)) {
             if (tsl::notification)
-                tsl::notification->showNow(usr + gr8, 24);
+                tsl::notification->showNow(ult::NOTIFY_HEADER+usr + gr8, 22);
         } else {
             if (tsl::notification)
-                tsl::notification->showNow("Unable to set network clock", 24);
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"Unable to set network clock", 22);
         }
     }
 
@@ -93,7 +93,7 @@ private:
         Result rs = timeGetCurrentTime(TimeType_NetworkSystemClock, (u64*)&currentTime);
         if (R_FAILED(rs)) {
             if (tsl::notification)
-                tsl::notification->showNow("GetTimeNetwork " + std::to_string(rs), 24);
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"GetTimeNetwork " + std::to_string(rs), 22);
             return;
         }
 
@@ -104,10 +104,10 @@ private:
         
         if (ntpTimeOffset != LLONG_MIN) {
             if (tsl::notification)
-                tsl::notification->showNow("Offset: " + std::to_string(ntpTimeOffset) + "s", 24);
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"Offset: " + std::to_string(ntpTimeOffset) + "s", 22);
         } else {
             if (tsl::notification)
-                tsl::notification->showNow("Error: Failed to get offset", 24);
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"Error: Failed to get offset", 22);
         }
 
         delete client;
@@ -215,8 +215,22 @@ public:
         trackbar->setValueChangedListener([this](u8 val) {
             currentServer = val;
         });
-        trackbar->setClickListener([this](u8 val) {
-            return syncListener(HidNpadButton_A)(val) || offsetListener(HidNpadButton_Y)(val);
+        trackbar->setClickListener([this, trackbar](u64 keys) {
+            static bool wasTriggered = false;
+            
+            // Only trigger animation on initial press (keys down), not while held
+            if (((keys & HidNpadButton_A) || (keys & HidNpadButton_Y)) && !wasTriggered) {
+                trackbar->triggerClickAnimation();
+                triggerNavigationFeedback();
+                wasTriggered = true;
+            }
+            
+            // Reset flag when key is released
+            if (!(keys & HidNpadButton_A) && !(keys & HidNpadButton_Y)) {
+                wasTriggered = false;
+            }
+            
+            return syncListener(HidNpadButton_A)(keys) || offsetListener(HidNpadButton_Y)(keys);
         });
         list->addItem(trackbar);
 
