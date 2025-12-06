@@ -221,7 +221,7 @@ public:
             // Only trigger animation on initial press (keys down), not while held
             if (((keys & HidNpadButton_A) || (keys & HidNpadButton_Y)) && !wasTriggered) {
                 trackbar->triggerClickAnimation();
-                triggerNavigationFeedback();
+                triggerEnterFeedback();
                 wasTriggered = true;
             }
             
