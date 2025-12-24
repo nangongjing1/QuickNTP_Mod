@@ -3,14 +3,14 @@
 #endif
 
 #define TESLA_INIT_IMPL
-#include <minIni.h>
 #include <tesla.hpp>
 
 #include <string>
 #include <vector>
+#include <climits>
 
 #include "ntp-client.hpp"
-#include "tesla-ext.hpp"
+#include "ini_funcs.hpp"
 
 TimeServiceType __nx_time_service_type = TimeServiceType_System;
 
@@ -26,7 +26,6 @@ const char* defaultServerName = "NTP Pool Main";
 
 class NtpGui : public tsl::Gui {
 private:
-    std::string Message = "";
     int currentServer = 0;
     bool blockFlag = false;
     std::vector<std::string> serverAddresses;
@@ -38,52 +37,54 @@ private:
 
     bool setNetworkSystemClock(time_t time) {
         Result rs = timeSetCurrentTime(TimeType_NetworkSystemClock, (uint64_t)time);
-        if (R_FAILED(rs)) {
-            return false;
-        }
-        return true;
+        return R_SUCCEEDED(rs);
     }
 
     void setTime() {
         std::string srv = getCurrentServerAddress();
         NTPClient* client = new NTPClient(srv.c_str());
 
-        try {
-            time_t ntpTime = client->getTime();
-
+        time_t ntpTime = client->getTime();
+        
+        if (ntpTime != 0) {
             if (setNetworkSystemClock(ntpTime)) {
-                Message = "Synced with " + srv;
+                if (tsl::notification)
+                    tsl::notification->showNow(ult::NOTIFY_HEADER+"Synced with " + srv, 22);
             } else {
-                Message = "Unable to set network clock.";
+                if (tsl::notification)
+                    tsl::notification->showNow(ult::NOTIFY_HEADER+"Unable to set network clock", 22);
             }
-        } catch (const NtpException& e) {
-            Message = "Error: " + std::string(e.what());
+        } else {
+            if (tsl::notification)
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"Error: Failed to get NTP time", 22);
         }
 
         delete client;
     }
 
-    void
-    setNetworkTimeAsUser() {
+    void setNetworkTimeAsUser() {
         time_t userTime, netTime;
 
         Result rs = timeGetCurrentTime(TimeType_UserSystemClock, (u64*)&userTime);
         if (R_FAILED(rs)) {
-            Message = "GetTimeUser " + std::to_string(rs);
+            if (tsl::notification)
+                tsl::notification->show(ult::NOTIFY_HEADER+"GetTimeUser " + std::to_string(rs), 22);
             return;
         }
 
         std::string usr = "User time!";
         std::string gr8 = "";
         rs = timeGetCurrentTime(TimeType_NetworkSystemClock, (u64*)&netTime);
-        if (!R_FAILED(rs) && netTime < userTime) {
+        if (R_SUCCEEDED(rs) && netTime < userTime) {
             gr8 = " Great Scott!";
         }
 
         if (setNetworkSystemClock(userTime)) {
-            Message = usr.append(gr8);
+            if (tsl::notification)
+                tsl::notification->showNow(ult::NOTIFY_HEADER+usr + gr8, 22);
         } else {
-            Message = "Unable to set network clock.";
+            if (tsl::notification)
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"Unable to set network clock", 22);
         }
     }
 
@@ -91,18 +92,22 @@ private:
         time_t currentTime;
         Result rs = timeGetCurrentTime(TimeType_NetworkSystemClock, (u64*)&currentTime);
         if (R_FAILED(rs)) {
-            Message = "GetTimeNetwork " + std::to_string(rs);
+            if (tsl::notification)
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"GetTimeNetwork " + std::to_string(rs), 22);
             return;
         }
 
         std::string srv = getCurrentServerAddress();
         NTPClient* client = new NTPClient(srv.c_str());
 
-        try {
-            time_t ntpTimeOffset = client->getTimeOffset(currentTime);
-            Message = "Offset: " + std::to_string(ntpTimeOffset) + "s";
-        } catch (const NtpException& e) {
-            Message = "Error: " + std::string(e.what());
+        time_t ntpTimeOffset = client->getTimeOffset(currentTime);
+        
+        if (ntpTimeOffset != LLONG_MIN) {
+            if (tsl::notification)
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"Offset: " + std::to_string(ntpTimeOffset) + "s", 22);
+        } else {
+            if (tsl::notification)
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"Error: Failed to get offset", 22);
         }
 
         delete client;
@@ -111,8 +116,7 @@ private:
     bool operationBlock(std::function<void()> fn) {
         if (!blockFlag) {
             blockFlag = true;
-            Message = "";
-            fn(); // TODO: Call async and set blockFlag to false
+            fn();
             blockFlag = false;
         }
         return !blockFlag;
@@ -142,29 +146,29 @@ private:
 
 public:
     NtpGui() {
-        char key[INI_BUFFERSIZE];
-        char value[INI_BUFFERSIZE];
-
-        const char* iniFile = iniLocations[0];
+        std::string iniFile = iniLocations[0];
+        
+        // Find the first existing INI file
         for (const char* loc : iniLocations) {
-            INI_FILETYPE fp;
-            if (ini_openread(loc, &fp)) {
+            if (ult::isFileOrDirectory(loc)) {
                 iniFile = loc;
-                ini_close(&fp);
                 break;
             }
         }
 
-        int idx = 0;
-        while (ini_getkey(iniSection, idx++, key, INI_BUFFERSIZE, iniFile) > 0) {
-            ini_gets(iniSection, key, "", value, INI_BUFFERSIZE, iniFile);
-            serverAddresses.push_back(value);
+        // Get all key-value pairs from the Servers section
+        auto serverMap = ult::getKeyValuePairsFromSection(iniFile, iniSection);
 
+        // Populate server lists from the parsed data
+        for (const auto& [key, value] : serverMap) {
+            serverAddresses.push_back(value);
+            
             std::string keyStr = key;
             std::replace(keyStr.begin(), keyStr.end(), '_', ' ');
             serverNames.push_back(keyStr);
         }
 
+        // Add default server if none were found
         if (serverNames.empty() || serverAddresses.empty()) {
             serverNames.push_back(defaultServerName);
             serverAddresses.push_back(defaultServerAddress);
@@ -172,36 +176,72 @@ public:
     }
 
     virtual tsl::elm::Element* createUI() override {
-        auto frame = new tsl::elm::CustomOverlayFrame("QuickNTP", std::string("by NedEX - v") + APP_VERSION);
+        auto frame = new tsl::elm::OverlayFrame("QuickNTP", std::string("by NedEX - v") + APP_VERSION);
+        frame->m_showWidget = true;
 
         auto list = new tsl::elm::List();
 
-        list->setClickListener([this](u64 keys) {
-            if (keys & (HidNpadButton_AnyUp | HidNpadButton_AnyDown | HidNpadButton_AnyLeft | HidNpadButton_AnyRight)) {
-                Message = "";
-                return true;
+        list->addItem(new tsl::elm::CategoryHeader("Pick server "+ult::DIVIDER_SYMBOL+" \uE0E0  Sync "+ult::DIVIDER_SYMBOL+" \uE0E3  Offset"));
+
+        // Create NamedStepTrackBar with V2 style using the server names
+        tsl::elm::NamedStepTrackBar* trackbar;
+        if (!serverNames.empty()) {
+            // Build initializer list from vector
+            switch (serverNames.size()) {
+                case 1:
+                    trackbar = new tsl::elm::NamedStepTrackBar("\uE017", {serverNames[0]}, true, "Server");
+                    break;
+                case 2:
+                    trackbar = new tsl::elm::NamedStepTrackBar("\uE017", {serverNames[0], serverNames[1]}, true, "Server");
+                    break;
+                case 3:
+                    trackbar = new tsl::elm::NamedStepTrackBar("\uE017", {serverNames[0], serverNames[1], serverNames[2]}, true, "Server");
+                    break;
+                case 4:
+                    trackbar = new tsl::elm::NamedStepTrackBar("\uE017", {serverNames[0], serverNames[1], serverNames[2], serverNames[3]}, true, "Server");
+                    break;
+                case 5:
+                    trackbar = new tsl::elm::NamedStepTrackBar("\uE017", {serverNames[0], serverNames[1], serverNames[2], serverNames[3], serverNames[4]}, true, "Server");
+                    break;
+                default:
+                    // For more than 5 servers, just use the first 5
+                    trackbar = new tsl::elm::NamedStepTrackBar("\uE017", {serverNames[0], serverNames[1], serverNames[2], serverNames[3], serverNames[4]}, true, "Server");
+                    break;
             }
-            return false;
-        });
-
-        list->addItem(new tsl::elm::CategoryHeader("Pick server   |   \uE0E0  Sync   |   \uE0E3  Offset"));
-
-        auto* trackbar = new tsl::elm::NamedStepTrackBarVector("\uE017", serverNames);
+        } else {
+            trackbar = new tsl::elm::NamedStepTrackBar("\uE017", {defaultServerName}, true, "Server");
+        }
+        
         trackbar->setValueChangedListener([this](u8 val) {
             currentServer = val;
-            Message = "";
         });
-        trackbar->setClickListener([this](u8 val) {
-            return syncListener(HidNpadButton_A)(val) || offsetListener(HidNpadButton_Y)(val);
+        trackbar->setClickListener([this, trackbar](u64 keys) {
+            static bool wasTriggered = false;
+            
+            // Only trigger animation on initial press (keys down), not while held
+            if (((keys & HidNpadButton_A) || (keys & HidNpadButton_Y)) && !wasTriggered) {
+                trackbar->triggerClickAnimation();
+                triggerEnterFeedback();
+                wasTriggered = true;
+            }
+            
+            // Reset flag when key is released
+            if (!(keys & HidNpadButton_A) && !(keys & HidNpadButton_Y)) {
+                wasTriggered = false;
+            }
+            
+            return syncListener(HidNpadButton_A)(keys) || offsetListener(HidNpadButton_Y)(keys);
         });
         list->addItem(trackbar);
+
+        list->addItem(new tsl::elm::CustomDrawer([](tsl::gfx::Renderer* renderer, s32 x, s32 y, s32 w, s32 h) {}), 24);
 
         auto* syncTimeItem = new tsl::elm::ListItem("Sync time");
         syncTimeItem->setClickListener(syncListener(HidNpadButton_A));
         list->addItem(syncTimeItem);
 
         list->addItem(new tsl::elm::CustomDrawer([](tsl::gfx::Renderer* renderer, s32 x, s32 y, s32 w, s32 h) {
-                          renderer->drawString("Syncs the time with the selected server.", false, x + 20, y + 20, 15, renderer->a(tsl::style::color::ColorDescription));
+                          renderer->drawString("Syncs the time with the selected server.", false, x + 20, y + 26, 15, renderer->a(tsl::style::color::ColorDescription));
                       }),
                       50);
 
@@ -210,7 +250,7 @@ public:
         list->addItem(getOffsetItem);
 
         list->addItem(new tsl::elm::CustomDrawer([](tsl::gfx::Renderer* renderer, s32 x, s32 y, s32 w, s32 h) {
-                          renderer->drawString("Gets the seconds offset with the selected server.\n\n\uE016  A value of ± 3 seconds is acceptable.", false, x + 20, y + 20, 15, renderer->a(tsl::style::color::ColorDescription));
+                          renderer->drawString("Gets the seconds offset with the selected server.\n\n\uE016  A value of ± 3 seconds is acceptable.", false, x + 20, y + 26, 15, renderer->a(tsl::style::color::ColorDescription));
                       }),
                       70);
 
@@ -226,15 +266,9 @@ public:
         list->addItem(setToInternalItem);
 
         list->addItem(new tsl::elm::CustomDrawer([](tsl::gfx::Renderer* renderer, s32 x, s32 y, s32 w, s32 h) {
-                          renderer->drawString("Sets the network time to the user-set time.", false, x + 20, y + 20, 15, renderer->a(tsl::style::color::ColorDescription));
+                          renderer->drawString("Sets the network time to the user-set time.", false, x + 20, y + 26, 15, renderer->a(tsl::style::color::ColorDescription));
                       }),
                       50);
-
-        list->addItem(new tsl::elm::CustomDrawerUnscissored([&message = Message](tsl::gfx::Renderer* renderer, s32 x, s32 y, s32 w, s32 h) {
-            if (!message.empty()) {
-                renderer->drawString(message.c_str(), false, x + 5, tsl::cfg::FramebufferHeight - 100, 20, renderer->a(tsl::style::color::ColorText));
-            }
-        }));
 
         frame->setContent(list);
         return frame;
@@ -260,10 +294,10 @@ public:
                                                 // 1 = prioritize memory efficiency (smaller internal allocations)
             .bsd_service_type    = BsdServiceType_Auto // Auto-select service
         };
-        ASSERT_FATAL(socketInitialize(&socketInitConfig));
+        socketInitialize(&socketInitConfig);
         ASSERT_FATAL(nifmInitialize(NifmServiceType_User));
         ASSERT_FATAL(timeInitialize());
-        ASSERT_FATAL(smInitialize()); // Needed
+        ASSERT_FATAL(smInitialize());
     }
 
     virtual void exitServices() override {
