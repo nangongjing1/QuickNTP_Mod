@@ -66,7 +66,7 @@ public:
         hints = (struct addrinfo){.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
 
         if ((status = getaddrinfo(m_server, m_port, &hints, &servinfo)) != 0) {
-            throw NtpException(1, "Unable to get address info (" + std::string(gai_strerror(status)) + ")");
+            throw NtpException(1, "解析服务器地址失败 (" + std::string(gai_strerror(status)) + ")");
         }
 
         struct addrinfo* ap;
@@ -85,13 +85,13 @@ public:
             if (setsockopt(server_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
                 close(server_sock);
                 freeaddrinfo(servinfo);
-                throw NtpException(2, "Unable to set socket receive timeout");
+                throw NtpException(2, "套接字接收超时");
             }
 
             if (setsockopt(server_sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0) {
                 close(server_sock);
                 freeaddrinfo(servinfo);
-                throw NtpException(3, "Unable to set socket send timeout");
+                throw NtpException(3, "套接字发送超时");
             }
 
             if (sendto(server_sock, &packet, sizeof(packet), 0, ap->ai_addr, ap->ai_addrlen) == -1) {
@@ -112,7 +112,7 @@ public:
 
         freeaddrinfo(servinfo);
         if (!time_retrieved) {
-            throw NtpException(4, "Unable to connect to NTP server");
+            throw NtpException(4, "连接 NTP 服务器失败");
         }
 
         close(server_sock);
