@@ -66,7 +66,7 @@ public:
         hints = (struct addrinfo){.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
 
         if ((status = getaddrinfo(m_server, m_port, &hints, &servinfo)) != 0) {
-            throw NtpException(1, "解析服务器地址失败 (" + std::string(gai_strerror(status)) + ")");
+            throw NtpException(1, "无法解析服务器地址");
         }
 
         struct addrinfo* ap;

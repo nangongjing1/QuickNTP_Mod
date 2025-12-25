@@ -40,10 +40,10 @@ private:
         return R_SUCCEEDED(rs);
     }
 
-    void setTime() {
-        std::string srv = getCurrentServerAddress();
+void setTime() {
+    std::string srv = getCurrentServerAddress();
+    try {
         NTPClient* client = new NTPClient(srv.c_str());
-
         time_t ntpTime = client->getTime();
         
         if (ntpTime != 0) {
@@ -60,7 +60,14 @@ private:
         }
 
         delete client;
+    } catch (const std::exception& e) {
+        if (tsl::notification)
+            tsl::notification->showNow(ult::NOTIFY_HEADER+"错误: " + std::string(e.what()), 22);
+    } catch (...) {
+        if (tsl::notification)
+            tsl::notification->showNow(ult::NOTIFY_HEADER+"未知错误", 22);
     }
+}
 
     void setNetworkTimeAsUser() {
         time_t userTime, netTime;
@@ -88,18 +95,18 @@ private:
         }
     }
 
-    void getOffset() {
-        time_t currentTime;
-        Result rs = timeGetCurrentTime(TimeType_NetworkSystemClock, (u64*)&currentTime);
-        if (R_FAILED(rs)) {
-            if (tsl::notification)
-                tsl::notification->showNow(ult::NOTIFY_HEADER+"获取网络时间 " + std::to_string(rs), 22);
-            return;
-        }
+void getOffset() {
+    time_t currentTime;
+    Result rs = timeGetCurrentTime(TimeType_NetworkSystemClock, (u64*)&currentTime);
+    if (R_FAILED(rs)) {
+        if (tsl::notification)
+            tsl::notification->showNow(ult::NOTIFY_HEADER+"获取网络时间 " + std::to_string(rs), 22);
+        return;
+    }
 
-        std::string srv = getCurrentServerAddress();
+    std::string srv = getCurrentServerAddress();
+    try {
         NTPClient* client = new NTPClient(srv.c_str());
-
         time_t ntpTimeOffset = client->getTimeOffset(currentTime);
         
         if (ntpTimeOffset != LLONG_MIN) {
@@ -111,7 +118,14 @@ private:
         }
 
         delete client;
+    } catch (const std::exception& e) {
+        if (tsl::notification)
+            tsl::notification->showNow(ult::NOTIFY_HEADER+"错误: " + std::string(e.what()), 22);
+    } catch (...) {
+        if (tsl::notification)
+            tsl::notification->showNow(ult::NOTIFY_HEADER+"未知错误", 22);
     }
+}
 
     bool operationBlock(std::function<void()> fn) {
         if (!blockFlag) {
