@@ -37,10 +37,10 @@ private:
         return R_SUCCEEDED(rs);
     }
 
-void setTime() {
-    std::string srv = getCurrentServerAddress();
-    try {
+    void setTime() {
+        std::string srv = getCurrentServerAddress();
         NTPClient* client = new NTPClient(srv.c_str());
+
         time_t ntpTime = client->getTime();
         
         if (ntpTime != 0) {
@@ -53,57 +53,75 @@ void setTime() {
             }
         } else {
             if (tsl::notification)
-                tsl::notification->showNow(ult::NOTIFY_HEADER+"错误: 无法获取 NTP 时间", 22);
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"无法获取网络时间", 22);
         }
 
         delete client;
-    } catch (const std::exception& e) {
-        if (tsl::notification)
-            tsl::notification->showNow(ult::NOTIFY_HEADER+"错误: " + std::string(e.what()), 22);
-    } catch (...) {
-        if (tsl::notification)
-            tsl::notification->showNow(ult::NOTIFY_HEADER+"未知错误", 22);
     }
-}
 
     void setNetworkTimeAsUser() {
+        // Check internet connectivity first
+        NifmInternetConnectionStatus connectionStatus;
+        Result nifmResult = nifmGetInternetConnectionStatus(nullptr, nullptr, &connectionStatus);
+        if (R_FAILED(nifmResult) || connectionStatus != NifmInternetConnectionStatus_Connected) {
+            if (tsl::notification)
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"无法获取网络时间", 22);
+            return;
+        }
+    
         time_t userTime, netTime;
-
+    
         Result rs = timeGetCurrentTime(TimeType_UserSystemClock, (u64*)&userTime);
         if (R_FAILED(rs)) {
             if (tsl::notification)
-                tsl::notification->show(ult::NOTIFY_HEADER+"获取本地时间 " + std::to_string(rs), 22);
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"获取本地时间 " + std::to_string(rs), 22);
             return;
         }
-
-        std::string usr = "设置用户时间成功!";
+    
+        // Validate that userTime is reasonable (not 0 or negative)
+        if (userTime <= 0) {
+            if (tsl::notification)
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"无效的本地时间", 22);
+            return;
+        }
+    
+        // Check if user time appears to be uninitialized (before year 2017, when Switch was released)
+        // Unix timestamp for Jan 1, 2017 is 1483228800
+        if (userTime < 1483228800) {
+            if (tsl::notification)
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"修改本地时间失败", 22);
+            return;
+        }
+    
+        std::string usr = "设置本地时间成功!";
         std::string gr8 = "";
         rs = timeGetCurrentTime(TimeType_NetworkSystemClock, (u64*)&netTime);
         if (R_SUCCEEDED(rs) && netTime < userTime) {
             gr8 = " Great Scott!";
         }
-
-        if (setNetworkSystemClock(userTime)) {
+    
+        Result setResult = timeSetCurrentTime(TimeType_NetworkSystemClock, (uint64_t)userTime);
+        if (R_SUCCEEDED(setResult)) {
             if (tsl::notification)
                 tsl::notification->showNow(ult::NOTIFY_HEADER+usr + gr8, 22);
         } else {
             if (tsl::notification)
-                tsl::notification->showNow(ult::NOTIFY_HEADER+"无法设置网络时间.", 22);
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"无法设置网络时间", 22);
         }
     }
 
-void getOffset() {
-    time_t currentTime;
-    Result rs = timeGetCurrentTime(TimeType_NetworkSystemClock, (u64*)&currentTime);
-    if (R_FAILED(rs)) {
-        if (tsl::notification)
-            tsl::notification->showNow(ult::NOTIFY_HEADER+"获取网络时间 " + std::to_string(rs), 22);
-        return;
-    }
+    void getOffset() {
+        time_t currentTime;
+        Result rs = timeGetCurrentTime(TimeType_NetworkSystemClock, (u64*)&currentTime);
+        if (R_FAILED(rs)) {
+            if (tsl::notification)
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"获取网络时间 " + std::to_string(rs), 22);
+            return;
+        }
 
-    std::string srv = getCurrentServerAddress();
-    try {
+        std::string srv = getCurrentServerAddress();
         NTPClient* client = new NTPClient(srv.c_str());
+
         time_t ntpTimeOffset = client->getTimeOffset(currentTime);
         
         if (ntpTimeOffset != LLONG_MIN) {
@@ -111,18 +129,11 @@ void getOffset() {
                 tsl::notification->showNow(ult::NOTIFY_HEADER+"偏移: " + std::to_string(ntpTimeOffset) + "s", 22);
         } else {
             if (tsl::notification)
-                tsl::notification->showNow(ult::NOTIFY_HEADER+"失败: 获取偏移量失败", 22);
+                tsl::notification->showNow(ult::NOTIFY_HEADER+"无法获取偏移量", 22);
         }
 
         delete client;
-    } catch (const std::exception& e) {
-        if (tsl::notification)
-            tsl::notification->showNow(ult::NOTIFY_HEADER+"错误: " + std::string(e.what()), 22);
-    } catch (...) {
-        if (tsl::notification)
-            tsl::notification->showNow(ult::NOTIFY_HEADER+"未知错误", 22);
     }
-}
 
     bool operationBlock(std::function<void()> fn) {
         if (!blockFlag) {
@@ -238,7 +249,10 @@ public:
             // Only trigger animation on initial press (keys down), not while held
             if (((keys & KEY_A) || (keys & KEY_Y)) && !wasTriggered) {
                 trackbar->triggerClickAnimation();
-                triggerEnterFeedback();
+                if (keys & KEY_A)
+                    triggerEnterFeedback();
+                else
+                    triggerSettingsFeedback();
                 wasTriggered = true;
             }
             
@@ -258,7 +272,7 @@ public:
         list->addItem(syncTimeItem);
 
         list->addItem(new tsl::elm::CustomDrawer([](tsl::gfx::Renderer* renderer, s32 x, s32 y, s32 w, s32 h) {
-                          renderer->drawString("使用所选服务器同步时间.", false, x + 20, y + 26, 15, renderer->a(tsl::style::color::ColorDescription));
+                          renderer->drawString("与所选服务器同步时间.", false, x + 20, y + 26, 15, renderer->a(tsl::style::color::ColorDescription));
                       }),
                       50);
 
@@ -267,11 +281,11 @@ public:
         list->addItem(getOffsetItem);
 
         list->addItem(new tsl::elm::CustomDrawer([](tsl::gfx::Renderer* renderer, s32 x, s32 y, s32 w, s32 h) {
-                          renderer->drawString("查看所选服务器时间偏移量.\n\n\uE016  ±3秒以内的差异是正常的.", false, x + 20, y + 26, 15, renderer->a(tsl::style::color::ColorDescription));
+                          renderer->drawString("查看与所选服务器之间的时间偏移量.\n\n\uE016  ±3秒以内的差异是正常的.", false, x + 20, y + 26, 15, renderer->a(tsl::style::color::ColorDescription));
                       }),
                       70);
 
-        auto* setToInternalItem = new tsl::elm::ListItem("用户时间");
+        auto* setToInternalItem = new tsl::elm::ListItem("本地时间");
         setToInternalItem->setClickListener([this](u64 keys) {
             if (keys & KEY_A) {
                 return operationBlock([&]() {
@@ -283,7 +297,7 @@ public:
         list->addItem(setToInternalItem);
 
         list->addItem(new tsl::elm::CustomDrawer([](tsl::gfx::Renderer* renderer, s32 x, s32 y, s32 w, s32 h) {
-                          renderer->drawString("将网络时间设置为用户时间.", false, x + 20, y + 26, 15, renderer->a(tsl::style::color::ColorDescription));
+                          renderer->drawString("将获取的网络时间设置为用户本地时间.", false, x + 20, y + 26, 15, renderer->a(tsl::style::color::ColorDescription));
                       }),
                       50);
 
