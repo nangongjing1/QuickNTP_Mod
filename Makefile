@@ -68,13 +68,20 @@ UI_OVERRIDE_PATH := /config/quickntp/
 CFLAGS += -DUI_OVERRIDE_PATH="\"$(UI_OVERRIDE_PATH)\""
 
 # Enable Widget
-USING_WIDGET_DIRECTIVE := 1  # or true
-CFLAGS += -DUSING_WIDGET_DIRECTIVE=$(USING_WIDGET_DIRECTIVE)
+CFLAGS += -DUSING_WIDGET_DIRECTIVE=1
+
+# Exception wrap utilization (for smaller compilation size)
+CFLAGS += -DUSE_EXCEPTION_WRAP=1
+
+# Requires USE_EXCEPTION_WRAP and inclusion of exception_wrap.hpp in main
+LDFLAGS += -Wl,-wrap,__cxa_throw \
+           -Wl,-wrap,_Unwind_Resume \
+           -Wl,-wrap,__gxx_personality_v0
 
 CXXFLAGS	:= $(CFLAGS) -std=c++26
 
 ASFLAGS	:=	-g $(ARCH)
-LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+LDFLAGS	+=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
 LIBS	:= -lnx
 
