@@ -38,7 +38,7 @@ include $(DEVKITPRO)/libnx/switch_rules
 #   NACP building is skipped as well.
 #---------------------------------------------------------------------------------
 APP_TITLE	:=	QuickNTP
-APP_VERSION	:=	1.6.1+
+APP_VERSION	:=	1.6.2+
 
 TARGET		:=	$(notdir $(CURDIR))
 BUILD		:=	build
@@ -49,7 +49,7 @@ INCLUDES	:=	include
 NO_ICON		:=  1
 
 # This location should reflect where you place the libultrahand directory (lib can vary between projects).
-include ${TOPDIR}/libs/libultrahand/ultrahand.mk
+include ${TOPDIR}/lib/libultrahand/ultrahand.mk
 
 
 #---------------------------------------------------------------------------------
